@@ -1,0 +1,8 @@
+pandas>=1.5,<2.2
+numpy>=1.23,<2.0
+scikit-learn>=1.2,<1.5
+lightgbm>=4.0,<5.0
+mlflow>=2.9,<3.0
+streamlit>=1.30,<2.0
+matplotlib>=3.7,<3.9
+joblib>=1.3
