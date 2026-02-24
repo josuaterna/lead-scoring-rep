@@ -66,6 +66,9 @@ if st.button("🔥 Reentrenar modelo"):
 
         run_id, new_auc = train("data/raw/leads.csv", "contacto_positivo")
 
+        print(f"run_id={run_id}")
+        print(f"run_id={new_auc}")
+
         promoted, old_auc = promote_if_better(
             "lead_scoring_model", run_id, new_auc
         )
