@@ -28,7 +28,8 @@ def get_models():
             subsample=0.8,
             colsample_bytree=0.8,
             n_jobs=-1,
-            random_state=42
+            random_state=42,
+            data_random_seed=42
         ),
 
         "xgboost": XGBClassifier(

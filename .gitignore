@@ -6,3 +6,4 @@ data/
 scripts/correct.py
 *.db
 .env
+command.txt

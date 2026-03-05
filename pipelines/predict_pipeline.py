@@ -1,9 +1,10 @@
 import pandas as pd
 
 
-def predict(model, csv_path: str, output_path: str):
+#def predict(model, csv_path: str, output_path: str):
+def predict(model, df: pd, output_path: str):
 
-    df = pd.read_csv(csv_path, sep=";")
+    #df = pd.read_csv(csv_path, sep=";")
 
     df.columns = (
         df.columns
