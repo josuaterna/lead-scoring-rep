@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from src.data_loader import drop_fields
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, FunctionTransformer
@@ -35,30 +36,37 @@ def build_preprocessor(df, target_col):
 
     return preprocessor
 
-def verificar_cobertura_categorias(csv_path, target_col, threshold=0.05, max_unique=100):
+def verificar_cobertura_categorias(csv_path, target_col, max_unique=150, forced_cat_cols=None):
+    if forced_cat_cols is None:
+        forced_cat_cols = []
     """
     Detecta columnas categóricas reales y numéricas que actúan como categorías.
-    threshold: % máximo de valores únicos respecto al total para considerarlo categoría.
     max_unique: número máximo absoluto de valores únicos para ser categoría.
     """
-    # 1. Muestra para análisis inicial
-    df_sample = pd.read_csv(csv_path, nrows=50000, sep=';')
+    df_sample = pd.read_csv(csv_path, nrows=100000, sep=';')
     
     # Detectar candidatas:
     # - Columnas tipo 'object' (texto)
     # - Columnas numéricas con baja cardinalidad (pocos valores únicos)
     candidatas = []
     for col in df_sample.columns:
-        if col == target_col: continue
-        unique_count = df_sample[col].nunique()
-        if unique_count < 100: 
-            is_object = df_sample[col].dtype == "object"
-            is_low_cardinality_num = (df_sample[col].dtype in ["int64", "float64"]) and (unique_count < max_unique)
+        # 1. Ignorar la columna objetivo
+        if col == target_col:
+            continue
+        if col in forced_cat_cols:
             candidatas.append(col)
-        else:
-            print(f"Columna {col} ignorada: demasiada cardinalidad ({unique_count})")
-                
-        if is_object or is_low_cardinality_num:
+            continue
+        unique_count = df_sample[col].nunique()
+        dtype = df_sample[col].dtype
+        
+        # 2. Definir condiciones de filtrado
+        is_object = (dtype == "object")
+        is_low_cardinality = (unique_count < 100) # Ajusta según tu lógica
+        is_low_cardinality_num = (dtype in ["int64", "float64"]) and (unique_count < max_unique)
+
+        # 3. Decidir si se agrega
+        if is_low_cardinality and (is_object or is_low_cardinality_num):
+#            print(f"Columna {col} agregada")
             candidatas.append(col)
 
     # 2. Escaneo de categorías totales (Igual que antes pero con la lista filtrada)
@@ -68,8 +76,9 @@ def verificar_cobertura_categorias(csv_path, target_col, threshold=0.05, max_uni
         for col in candidatas:
             # Forzamos conversión a string para que el OneHotEncoder sea consistente
             categorias_totales[col].update(chunk[col].dropna().astype(str).unique())
-            
-    return {col: sorted(list(values)) for col, values in categorias_totales.items()}
+    dict_final = {col: sorted(list(values)) for col, values in categorias_totales.items() if len(values) > 0}
+
+    return dict_final
 
 def build_preprocessor_big_data(df_sample, dict_categorias, target_col):
     # 1. Extraemos nombres y valores del diccionario de forma SINCRONIZADA
@@ -81,17 +90,18 @@ def build_preprocessor_big_data(df_sample, dict_categorias, target_col):
         c for c in df_sample.select_dtypes(include=["int64", "float64"]).columns 
         if c != target_col and c not in categorical_cols
     ]
+    #print(f"Numeric cols: {numeric_cols}")
 
     # 3. Pipeline Categórico (Seguro y Eficiente)
     categorical_pipeline = Pipeline(steps=[
-        # Convertimos a string para evitar errores de tipos mixtos
-        ("to_str", FunctionTransformer(lambda x: x.astype(str))),
-        ("imputer", SimpleImputer(strategy="most_frequent")),
-        ("onehot", OneHotEncoder(
-            categories=lista_categorias, 
-            handle_unknown="ignore", 
-            sparse_output=True # <--- OBLIGATORIO para 1GB de datos
-        ))
+    # Cambiamos .astype(str) por .astype(object) para evitar el tipo <U54
+    ("to_str", FunctionTransformer(lambda x: x.astype(str).astype(object))),
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("onehot", OneHotEncoder(
+        categories=lista_categorias, 
+        handle_unknown="ignore", 
+        sparse_output=False 
+    ))
     ])
 
     # 4. Pipeline Numérico
@@ -109,6 +119,12 @@ def build_preprocessor_big_data(df_sample, dict_categorias, target_col):
     )
     
     # Ajustamos con la muestra
+    for col in categorical_cols:
+        df_sample[col] = df_sample[col].astype(str).astype(object)
+    
+    # for i, col in enumerate(categorical_cols):
+    #     print(f"Columna: {col} | Cantidad categorías en lista: {len(lista_categorias[i])}")
+    # print([(col, len(cats)) for col, cats in zip(categorical_cols, lista_categorias)])
     preprocessor.fit(df_sample)
     
     return preprocessor

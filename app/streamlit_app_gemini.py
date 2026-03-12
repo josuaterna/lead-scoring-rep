@@ -5,13 +5,86 @@ import pandas as pd
 import tkinter as tk
 from tkinter import filedialog
 from src.data_loader import subir_archivo
+from scripts.train import train_big_data
+from scripts.mlfunc import promote_if_better
 from pathlib import Path
+from PIL import Image
 
 FOLDER_DATA = Path(__file__).parent
 client = MlflowClient()
+fav = Image.open(FOLDER_DATA / "img" / "favicon.png" )
+logo = Image.open(FOLDER_DATA / "img" / "logo.png" )
 
-st.set_page_config(layout="wide")
-st.title("Lead Scoring")
+#st.set_page_config(layout="wide", page_icon=fav, page_title="Lead Scoring")
+st.set_page_config(page_icon=fav, page_title="Lead Scoring")
+
+def load_file(file_name, exp_id):
+    #st.subheader(f"Cargando datos para: {file_name}")
+    # En lugar de otro formulario, usa un botón simple para disparar el diálogo de archivos
+    if st.button("Seleccionar Archivo CSV"):
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        ruta = filedialog.askopenfilename(master=root)
+        root.destroy() # Importante cerrar la instancia de tk
+        
+        if ruta:
+            st.session_state.ruta_manual = ruta
+
+    # Si ya tenemos la ruta, procedemos al procesamiento
+    if 'ruta_manual' in st.session_state:
+        ruta_origen = st.text_input("Ruta seleccionada:", value=st.session_state.ruta_manual)
+        final_path = FOLDER_DATA.parent / "mlruns" / exp_id / f"{file_name}.csv"
+        
+        if st.button("Confirmar y Procesar"):
+            status_text = st.empty()
+            def mi_progreso(n_chunk, n_filas):
+                status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
+            
+            try:
+                total = subir_archivo(ruta_origen, final_path, progress_callback=mi_progreso)
+                st.success(f"¡Archivo guardado: {total} filas!")
+                return True
+            except Exception as e:
+                st.error(f"Error: {e}")
+                return False
+
+def train_ui(exp_id, exp_name, mod_name, file_name):
+    try:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # 3. Definir la función callback que se enviará al módulo externo
+        def actualizar_ui(valor, texto):
+            progress_bar.progress(valor)
+            status_text.text(texto)
+            
+        # 4. Llamar a la función del otro módulo pasando el callback
+        with st.spinner("Ejecutando pipeline..."):
+            file_path = FOLDER_DATA.parent / "mlruns" / exp_id / f"{file_name}.csv"
+            run_id, new_auc = train_big_data(file_path, exp_name, mod_name, "contacto_positivo", progress_callback=actualizar_ui)
+            
+        st.success(f"Modelo entrenado. Run ID: {run_id} - AUC: {new_auc:.4f}")
+        # run_id, new_auc = train(file_path, exp_names.name, texto_m, "contacto_positivo")
+        # st.success(f"Entrenamiento finalizado.")
+        promoted, old_auc = promote_if_better(exp_name, mod_name, run_id, new_auc)
+        st.success(f"Entrenamiento finalizado. Promovido: {promoted} - AUC anterior/nuevo: {old_auc} / {new_auc}")
+
+    except Exception as e:
+        st.warning(f"Error entrenando modelo {e}")
+
+st.divider()
+with st.container():
+    col_logo, col_text = st.columns([5 , 10])
+    with col_logo:
+        if logo:
+            st.image(logo)
+        else:
+            st.error(f"No se encontró el logo.")
+    with col_text:
+        st.title("Lead Scoring")
+        st.caption("Soluciones Inteligentes de Contact Center & BPO")
+
 
 # --- LÓGICA DE EXPERIMENTOS ---
 with st.container(border=True):
@@ -73,46 +146,81 @@ if seleccion_exp_name != "Choose an option":
 
         col_left, col_right = st.columns(2)
         
+            # 1. Inicializar estados
+        if 'form_lvl' not in st.session_state:
+            st.session_state.form_lvl = 0
         with col_left:
             # Lista desplegable (se actualiza al cambiar el experimento)
-            st.selectbox("Selecciona un modelo:", ["Choose an option"] + models_in_exp)
+            nombre_m = st.selectbox("Selecciona un modelo:", ["Choose an option"] + models_in_exp)
             
             # 3. Lógica de advertencia y file loader
             if not models_in_exp:
                 st.warning(f"⚠️ No hay modelos en 'production' para: {seleccion_exp_name}")
-                #st.file_uploader("Cargar archivo para entrenar nuevo modelo:", type=['csv', 'xlsx'])
-                # Inicializar Tkinter oculto
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes('-topmost', True) # Asegura que aparezca al frente
-                if st.button('Abrir Explorador de Archivos'):
-                    # Abre la ventana de búsqueda y captura el string de la ruta
-                    ruta = filedialog.askopenfilename(master=root)
-                    if ruta:
-                        st.session_state.ruta_manual = ruta
 
-                # Campo de texto editable vinculado a la selección
-                if 'ruta_manual' in st.session_state:
-                    ruta_origen = st.text_input("Ruta seleccionada:", value=st.session_state.ruta_manual)
-                    orig_path = Path(ruta_origen)
-                    final_path = FOLDER_DATA.parent / "mlruns" / target_exp_id / f"{target_exp_id}.csv"
-                    status_text = st.empty()
-                    def mi_progreso(n_chunk, n_filas):
-                        status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
-                    try:
-                        total = subir_archivo(ruta_origen, final_path, progress_callback=mi_progreso)
-                        st.success(f"Archivo guardado: {total} filas")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+            if nombre_m and nombre_m != "Choose an option":
+                st.session_state.nombre_archivo = f"{nombre_m}_model"
+                st.session_state.nombre_m = nombre_m
+                st.session_state.form_lvl = 2
+                st.rerun()
+                st.session_state.form_lvl = 3
+                st.rerun()
+                #load_file(f"{nombre_m}_model", target_exp_id)
+                #train_ui(target_exp_id, seleccion_exp_name, nombre_m)
+            # # Inicializar Tkinter oculto
+            # root = tk.Tk()
+            # root.withdraw()
+            # root.attributes('-topmost', True) # Asegura que aparezca al frente
+            # if st.button('Cargar'):
+            #     # Abre la ventana de búsqueda y captura el string de la ruta
+            #     ruta = filedialog.askopenfilename(master=root)
+            #     if ruta:
+            #         st.session_state.ruta_manual = ruta
+
+            # # Campo de texto editable vinculado a la selección
+            # if 'ruta_manual' in st.session_state:
+            #     ruta_origen = st.text_input("Ruta seleccionada:", value=st.session_state.ruta_manual)
+            #     orig_path = Path(ruta_origen)
+            #     final_path = FOLDER_DATA.parent / "mlruns" / target_exp_id / f"{target_exp_id}.csv"
+            #     status_text = st.empty()
+            #     def mi_progreso(n_chunk, n_filas):
+            #         status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
+            #     try:
+            #         total = subir_archivo(ruta_origen, final_path, progress_callback=mi_progreso)
+            #         st.success(f"Archivo guardado: {total} filas")
+            #     except Exception as e:
+            #         st.error(f"Error: {e}")
                 
-                with col_right:
-                    if col_b2.button("Nuevo", key="btn_n_mod"):
-                        st.session_state.mostrar_form_mod = True
+        with col_right:
+            # Botón para resetear al primer formulario
+            if col_b2.button("Nuevo", key="btn_n_mod"):
+                st.session_state.form_lvl = 1
+                st.rerun()
 
-                    if st.session_state.get('mostrar_form_mod', False):
-                        with st.form("form_nuevo_mod"):
-                            nombre_m = st.text_input("Nombre model:")
-                            if st.form_submit_button("Enviar"):
-                                client.create_registered_model(nombre_m)
-                                st.success(f"Modelo {nombre_m} creado.")
-                                st.session_state.mostrar_form_mod = False
+            # --- CONTROL DE NIVELES ---
+
+            # NIVEL 1: Formulario de Nombre
+        if st.session_state.form_lvl == 1:
+            with col_right:
+                with st.form("form_nuevo_mod"):
+                    nombre_m = st.text_input("Nombre model:")
+                    enviado_m = st.form_submit_button("Enviar")
+                    
+                    if enviado_m:
+                        if nombre_m:
+                            st.session_state.nombre_m = f"{nombre_m}_model"
+                            st.session_state.nombre_archivo = f"{nombre_m}_file"
+                            st.session_state.form_lvl = 2 # Pasamos al siguiente nivel
+                            st.rerun() # Ahora sí, recargamos para mostrar el nivel 2
+                        else:
+                            st.error("Por favor, ingresa un nombre.")
+
+                # NIVEL 2: Carga de Archivo (Llamada a la función)
+        elif st.session_state.form_lvl == 2:
+            with col_right:
+                if load_file(st.session_state.nombre_archivo, target_exp_id):
+                    print("cambio state a lvl 3")
+                    st.session_state.form_lvl = 3
+                    st.rerun()
+        elif st.session_state.form_lvl == 3:    
+            train_ui(target_exp_id, seleccion_exp_name, st.session_state.nombre_m, st.session_state.nombre_archivo)
+                        

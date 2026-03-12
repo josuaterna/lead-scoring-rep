@@ -59,7 +59,10 @@ def promote_if_better(
         try:
             prod_version = client.get_model_version_by_alias(model_name, "production")
         except MlflowException as e:
-            print(error_msg = str(e))
+            promote = True
+            promote_action(model_name, new_run_id)
+            return promote, new_auc
+        except Exception as e:
             promote = True
             promote_action(model_name, new_run_id)
             return promote, new_auc
@@ -194,3 +197,40 @@ def get_experiment(exp_name):
         return estado, experiment_id
     else:
         return None
+
+def predict_from_mlflow(run_id, data_to_predict):
+    """
+    run_id: El ID del experimento de MLflow donde se guardó el modelo.
+    data_to_predict: DataFrame con los datos nuevos (crudos).
+    """
+    # 1. Cargar el Preprocesador (Sklearn)
+    preprocessor_uri = f"runs:/{run_id}/preprocessor"
+    preprocessor = mlflow.sklearn.load_model(preprocessor_uri)
+    
+    # 2. Cargar el Modelo (Booster nativo)
+    model_uri = f"runs:/{run_id}/model"
+    
+    # Intentamos cargar como LightGBM, si falla probamos XGBoost
+    try:
+        model = mlflow.lightgbm.load_model(model_uri)
+        is_lgb = True
+    except:
+        model = mlflow.xgboost.load_model(model_uri)
+        is_lgb = False
+
+    # 3. Transformar los datos nuevos
+    X_processed = preprocessor.transform(data_to_predict)
+    if hasattr(X_processed, "toarray"):
+        X_processed = X_processed.toarray()
+
+    # 4. Predicción
+    if is_lgb:
+        # LightGBM Booster usa predict directamente
+        y_proba = model.predict(X_processed)
+    else:
+        # XGBoost Booster requiere DMatrix
+        import xgboost as xgb
+        dtest = xgb.DMatrix(X_processed)
+        y_proba = model.predict(dtest)
+
+    return y_proba
