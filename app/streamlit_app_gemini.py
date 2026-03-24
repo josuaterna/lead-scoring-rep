@@ -7,6 +7,7 @@ from tkinter import filedialog
 from src.data_loader import subir_archivo
 from scripts.train import train_big_data
 from scripts.mlfunc import promote_if_better
+from scripts.mlfunc import batch_predict_to_disk
 from pathlib import Path
 from PIL import Image
 
@@ -21,7 +22,7 @@ st.set_page_config(page_icon=fav, page_title="Lead Scoring")
 def load_file(file_name, exp_id):
     #st.subheader(f"Cargando datos para: {file_name}")
     # En lugar de otro formulario, usa un botón simple para disparar el diálogo de archivos
-    if st.button("Seleccionar Archivo CSV"):
+    if st.button("Seleccionar Archivo CSV", key="btn_explore"):
         root = tk.Tk()
         root.withdraw()
         root.attributes('-topmost', True)
@@ -36,7 +37,7 @@ def load_file(file_name, exp_id):
         ruta_origen = st.text_input("Ruta seleccionada:", value=st.session_state.ruta_manual)
         final_path = FOLDER_DATA.parent / "mlruns" / exp_id / f"{file_name}.csv"
         
-        if st.button("Confirmar y Procesar"):
+        if st.button("Confirmar y Procesar",key="btn_load"):
             status_text = st.empty()
             def mi_progreso(n_chunk, n_filas):
                 status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
@@ -72,6 +73,44 @@ def train_ui(exp_id, exp_name, mod_name, file_name):
 
     except Exception as e:
         st.warning(f"Error entrenando modelo {e}")
+
+def score_ui(run_id, path_in, path_out):
+    print("Inicio score_ui")
+    print(run_id)
+    print(path_in)
+    print(path_out)
+    if path_in.exists():
+        if not run_id:
+            st.error("Error: No hay un modelo seleccionado.")
+        else:
+            print(" Eliminar el archivo de salida previo si existe para empezar de cero")
+            if path_out.exists():
+                path_out.unlink(missing_ok=True)
+            with st.spinner("Scoring..."):
+                try:
+                    print(" Ejecutar la predicción pesada")
+                    batch_predict_to_disk(
+                        run_id=run_id,
+                        input_csv_path=path_in,
+                        output_csv_path=path_out
+                    )
+                    st.success(f"Procesamiento finalizado.")
+                    
+                    # Botón de descarga: Lee del archivo físico
+                    if path_out.exists():
+                        try:
+                            with open(path_out, "rb") as file:
+                                st.download_button(
+                                    label="📥 Descargar Resultado Final",
+                                    data=file,
+                                    file_name=path_out.name,
+                                    mime="text/csv",
+                                    key="btn_dl"
+                                )
+                        except Exception as e:
+                            st.error(f"Error al descargar: {e}")
+                except Exception as e:
+                    st.error(f"Ocurrió un error: {e}")
 
 st.divider()
 with st.container():
@@ -111,7 +150,7 @@ with st.container(border=True):
         if st.session_state.get('crear_exp', False):
             with st.form("form_exp"):
                 n_exp = st.text_input("Nombre experiment:")
-                if st.form_submit_button("Crear"):
+                if st.form_submit_button("Crear", key= "btn_n_exp_conf"):
                     mlflow.create_experiment(n_exp)
                     st.session_state.crear_exp = False
                     st.rerun()
@@ -127,9 +166,9 @@ if seleccion_exp_name != "Choose an option":
         # 2. Filtrar modelos asociados al experimento seleccionado
         # Buscamos runs del experimento que tengan modelos registrados
         runs = client.search_runs(experiment_ids=[target_exp_id])
-        models_in_exp = []
-        
+        models_dict = {}
         for run in runs:
+            current_run_id = run.info.run_id
             # Buscamos si el run tiene modelos registrados con alias 'production'
             # Nota: Esto asume que el modelo se registró desde un run de este experimento
             filter_string = f"run_id = '{run.info.run_id}'"
@@ -138,60 +177,46 @@ if seleccion_exp_name != "Choose an option":
                 try:
                     # Verificamos si esa versión específica tiene el alias 'production'
                     aliases = client.get_model_version(mv.name, mv.version).aliases
-                    if "production" in aliases:
-                        if mv.name not in models_in_exp:
-                            models_in_exp.append(mv.name)
+                    if mv.name not in models_dict:
+                        models_dict[mv.name] = current_run_id
                 except:
                     continue
-
-        col_left, col_right = st.columns(2)
-        
             # 1. Inicializar estados
         if 'form_lvl' not in st.session_state:
-            st.session_state.form_lvl = 0
+            st.session_state.form_lvl = 0                
+        col_left, col_right = st.columns(2)
+
         with col_left:
             # Lista desplegable (se actualiza al cambiar el experimento)
-            nombre_m = st.selectbox("Selecciona un modelo:", ["Choose an option"] + models_in_exp)
+            if models_dict:
+                nombres_modelos = list(models_dict.keys())
             
+            nombre_m = st.selectbox("Selecciona un modelo:", ["Choose an option"] + nombres_modelos)
             # 3. Lógica de advertencia y file loader
-            if not models_in_exp:
+            if not models_dict:
                 st.warning(f"⚠️ No hay modelos en 'production' para: {seleccion_exp_name}")
 
             if nombre_m and nombre_m != "Choose an option":
-                st.session_state.nombre_archivo = f"{nombre_m}_model"
+                st.session_state.run_id_modelo = models_dict[nombre_m]
                 st.session_state.nombre_m = nombre_m
-                st.session_state.form_lvl = 2
-                st.rerun()
-                st.session_state.form_lvl = 3
-                st.rerun()
-                #load_file(f"{nombre_m}_model", target_exp_id)
-                #train_ui(target_exp_id, seleccion_exp_name, nombre_m)
-            # # Inicializar Tkinter oculto
-            # root = tk.Tk()
-            # root.withdraw()
-            # root.attributes('-topmost', True) # Asegura que aparezca al frente
-            # if st.button('Cargar'):
-            #     # Abre la ventana de búsqueda y captura el string de la ruta
-            #     ruta = filedialog.askopenfilename(master=root)
-            #     if ruta:
-            #         st.session_state.ruta_manual = ruta
+                col_left_l, col_left_r = st.columns(2)
+                with col_left_l:
+                    if col_left_l.button("Train", key="btn_train"):
+                        st.session_state.nombre_archivo = nombre_m.replace("_model", "_file")
+                        st.session_state.form_lvl = 2 # Pasamos al siguiente nivel
+                        st.rerun()
+                with col_left_r:
+                    if col_left_r.button("Score", key="btn_score"):
+                        st.session_state.nombre_archivo = nombre_m.replace("_model", "_score_in")
+                        st.session_state.nombre_archivo_out = nombre_m.replace("_model", "_score_out")
+                        path_in = FOLDER_DATA.parent / "mlruns" / target_exp_id / f"{st.session_state.nombre_archivo}.csv"
+                        path_out = FOLDER_DATA.parent / "mlruns" / target_exp_id / f"{st.session_state.nombre_archivo_out}.csv"
+                        st.session_state.path_in = path_in
+                        st.session_state.path_out = path_out
+                        st.session_state.form_lvl = 4 # Pasamos al siguiente nivel
+                        st.rerun()
 
-            # # Campo de texto editable vinculado a la selección
-            # if 'ruta_manual' in st.session_state:
-            #     ruta_origen = st.text_input("Ruta seleccionada:", value=st.session_state.ruta_manual)
-            #     orig_path = Path(ruta_origen)
-            #     final_path = FOLDER_DATA.parent / "mlruns" / target_exp_id / f"{target_exp_id}.csv"
-            #     status_text = st.empty()
-            #     def mi_progreso(n_chunk, n_filas):
-            #         status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
-            #     try:
-            #         total = subir_archivo(ruta_origen, final_path, progress_callback=mi_progreso)
-            #         st.success(f"Archivo guardado: {total} filas")
-            #     except Exception as e:
-            #         st.error(f"Error: {e}")
-                
         with col_right:
-            # Botón para resetear al primer formulario
             if col_b2.button("Nuevo", key="btn_n_mod"):
                 st.session_state.form_lvl = 1
                 st.rerun()
@@ -201,10 +226,9 @@ if seleccion_exp_name != "Choose an option":
             # NIVEL 1: Formulario de Nombre
         if st.session_state.form_lvl == 1:
             with col_right:
-                with st.form("form_nuevo_mod"):
+                with st.form("form_nuevo_mod", clear_on_submit=True):
                     nombre_m = st.text_input("Nombre model:")
-                    enviado_m = st.form_submit_button("Enviar")
-                    
+                    enviado_m = st.form_submit_button("Enviar", key="btn_n_mod")
                     if enviado_m:
                         if nombre_m:
                             st.session_state.nombre_m = f"{nombre_m}_model"
@@ -213,14 +237,24 @@ if seleccion_exp_name != "Choose an option":
                             st.rerun() # Ahora sí, recargamos para mostrar el nivel 2
                         else:
                             st.error("Por favor, ingresa un nombre.")
+                            st.rerun()
 
                 # NIVEL 2: Carga de Archivo (Llamada a la función)
         elif st.session_state.form_lvl == 2:
             with col_right:
                 if load_file(st.session_state.nombre_archivo, target_exp_id):
-                    print("cambio state a lvl 3")
                     st.session_state.form_lvl = 3
                     st.rerun()
         elif st.session_state.form_lvl == 3:    
             train_ui(target_exp_id, seleccion_exp_name, st.session_state.nombre_m, st.session_state.nombre_archivo)
+            st.session_state.form_lvl = 0
+            st.rerun()
                         
+        elif st.session_state.form_lvl == 4:
+            if load_file(st.session_state.nombre_archivo, target_exp_id):
+                st.session_state.form_lvl = 5
+                st.rerun()
+        elif st.session_state.form_lvl == 5:
+            score_ui(st.session_state.run_id_modelo, st.session_state.path_in, st.session_state.path_out)
+            st.session_state.form_lvl = 0
+            #st.rerun()

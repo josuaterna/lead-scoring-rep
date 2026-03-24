@@ -66,7 +66,6 @@ def verificar_cobertura_categorias(csv_path, target_col, max_unique=150, forced_
 
         # 3. Decidir si se agrega
         if is_low_cardinality and (is_object or is_low_cardinality_num):
-#            print(f"Columna {col} agregada")
             candidatas.append(col)
 
     # 2. Escaneo de categorías totales (Igual que antes pero con la lista filtrada)
@@ -122,9 +121,7 @@ def build_preprocessor_big_data(df_sample, dict_categorias, target_col):
     for col in categorical_cols:
         df_sample[col] = df_sample[col].astype(str).astype(object)
     
-    # for i, col in enumerate(categorical_cols):
-    #     print(f"Columna: {col} | Cantidad categorías en lista: {len(lista_categorias[i])}")
-    # print([(col, len(cats)) for col, cats in zip(categorical_cols, lista_categorias)])
+    df_sample=df_sample.drop(columns=[target_col])
     preprocessor.fit(df_sample)
     
     return preprocessor

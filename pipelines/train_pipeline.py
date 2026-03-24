@@ -5,6 +5,7 @@ import lightgbm as lgb
 import hashlib
 import mlflow
 import mlflow.sklearn
+import time
 from pathlib import Path
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import StratifiedKFold, cross_validate
@@ -126,34 +127,51 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
     mlflow.set_experiment(exp_name)
     best_auc = 0
     
-    print(" Listas para acumular métricas de evaluación final")
+    # Listas para acumular métricas de evaluación final"
     test_chunks_x = []
     test_chunks_y = []
 
     with mlflow.start_run() as parent_run:
         models = get_models()
-        
+        id_tag = None
+        id_parent = parent_run.info.run_id
+        print(f"ID parent: {id_parent}")
         for name, model in models.items():
-            with mlflow.start_run(run_name=name, nested=True):
+            with mlflow.start_run(run_name=name, nested=True) as child_run:
                 trained_booster = None
-                
-                print("# 2. PROCESAMIENTO POR CHUNKS")
+                id_child = child_run.info.run_id
+                print(f"ID child: {id_child}")
+                if id_tag == None:
+                    id_tag = id_child
+                print(f"ID tag: {id_tag}")
+                print(" 2. PROCESAMIENTO POR CHUNKS")
+                total_positivos = 0
+                total_negativos = 0
                 for i, chunk in enumerate(pd.read_csv(csv_path, chunksize=chunksize, sep=";")):
-                    # Aplicamos el filtrado por Hash a cada fila del chunk
-                    # Nota: Excluimos el target para que el hash dependa solo de las features
+                    try:
+                        conteo = chunk[target_col].value_counts()
+                        total_positivos += conteo.get(1, 0)
+                        total_negativos += conteo.get(0, 0)
+                        pos_weight = total_negativos / max(total_positivos, 1)
+                    except Exception as e:
+                        pos_weight = 0.05
+                        print(f"Error conteo: {e}")
+
+                    # print(" Aplicamos el filtrado por Hash a cada fila del chunk")
+                    # print(" Nota: Excluimos el target para que el hash dependa solo de las features")
                     es_test = chunk.drop(columns=[target_col]).apply(pertenece_a_test, axis=1)
                     
                     train_chunk = chunk[~es_test].copy() # Usamos .copy() para evitar SettingWithCopyWarning
-                    # 2. LIMPIEZA CRÍTICA: Eliminar filas donde el target sea NaN o Infinito
-                    # Esto evita que XGBoost rompa
+                    # print(" LIMPIEZA CRÍTICA: Eliminar filas donde el target sea NaN o Infinito")
+                    # print(" Esto evita que XGBoost rompa")
                     train_chunk = train_chunk[
                         train_chunk[target_col].notna() & 
                         np.isfinite(train_chunk[target_col])
                     ]
                     val_chunk = chunk[es_test]
                     
-                    # Acumulación segura para evaluación (solo en el primer modelo)
-                    # Importante: Solo si el chunk de validación no está vacío
+                    # print(" Acumulación segura para evaluación (solo en el primer modelo)")
+                    # print(" Importante: Solo si el chunk de validación no está vacío")
                     if not val_chunk.empty and len(test_chunks_x) < 5 and name == list(models.keys())[0]:
                         val_x_trans = preprocessor.transform(val_chunk.drop(columns=[target_col]))
                         if hasattr(val_x_trans, "toarray"):
@@ -161,7 +179,7 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
                         test_chunks_x.append(val_x_trans)
                         test_chunks_y.append(val_chunk[target_col].values)
 
-                    # Entrenamiento incremental
+                    # print(" Entrenamiento incremental")
                     if not train_chunk.empty:
                         X_train_trans = preprocessor.transform(train_chunk.drop(columns=[target_col]))
                         # Aseguramos formato denso para evitar "setting an array element with a sequence"
@@ -169,33 +187,39 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
                             X_train_trans = X_train_trans.toarray()
                         y_train = train_chunk[target_col].values.astype(np.float32)
                     if name == "xgboost":
-                        # 1. Filtramos los parámetros que causan ruido o no aplican a xgb.train
+                        print(" 1. Filtramos los parámetros que causan ruido o no aplican a xgb.train")
                         params = {
                             k: v for k, v in model.get_params().items() 
                             if k not in ['n_estimators', 'missing', 'enable_categorical']
                         }
                         
-                        # 2. Opcional: Silenciar warnings internos de XGBoost
+                        print(" 2. Opcional: Silenciar warnings internos de XGBoost")
                         params['verbosity'] = 0
                         params['tree_method']='hist'
+                        params['max_depth'] = 8
+                        params['scale_pos_weight'] = pos_weight
 
                         dtrain = xgb.DMatrix(X_train_trans, label=y_train)
                         trained_booster = xgb.train(
                             params, dtrain, num_boost_round=10, xgb_model=trained_booster
                         )
                     elif name == "lightgbm":
-                        # Extraemos parámetros y añadimos la optimización
+                        #print(" Extraemos parámetros y añadimos la optimización")
                         params = {k: v for k, v in model.get_params().items() if k not in ['n_estimators']}
-                        # 1. Aplicamos la recomendación para mejorar la ejecución
+                        #print(" 1. Aplicamos la recomendación para mejorar la ejecución")
                         params['force_row_wise'] = True  # O True/False según tus datos
-                        # 2. Para silenciar otras advertencias menos importantes:
+                        #print(" 2. Para silenciar otras advertencias menos importantes:")
                         params['verbosity'] = -1
+                        params['max_depth'] = 8
+                        params['scale_pos_weight'] = pos_weight
+                        #print(" En LGBM es vital ajustar num_leaves si subes max_depth (2^max_depth - 1)")
+                        params['num_leaves'] = 255
                         dtrain = lgb.Dataset(X_train_trans, label=y_train, free_raw_data=False)
                         trained_booster = lgb.train(
                             params, dtrain, num_boost_round=10, init_model=trained_booster, keep_training_booster=True
                         )
                     if progress_callback:
-                        # Estimamos progreso basado en el tamaño del archivo procesado
+                        #print(" Estimamos progreso basado en el tamaño del archivo procesado")
                         # Cada fila tiene un peso aprox, o simplemente por número de chunks
                         # Si conoces el total de filas, usa: (i * chunk_size) / total_filas
                         progreso_estimado = min((i + 1) * chunksize / 1000000, 0.99) # Ejemplo para 1M filas
@@ -206,33 +230,37 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
                 X_test = np.concatenate(test_chunks_x, axis=0)
                 y_test = np.concatenate(test_chunks_y, axis=0)
 
-                # Predicción usando el sabor nativo del booster
+                print(" Predicción usando el sabor nativo del booster")
                 if name == "xgboost":
                     dtest = xgb.DMatrix(X_test)
                     y_proba = trained_booster.predict(dtest)
-                    # Logueo específico para XGBoost
+                    print(" Logueo específico para XGBoost")
                     mlflow.xgboost.log_model(trained_booster, artifact_path="model")
                 elif name == "lightgbm":
                     y_proba = trained_booster.predict(X_test)
-                    # Logueo específico para LightGBM
+                    print(" Logueo específico para LightGBM")
                     mlflow.lightgbm.log_model(trained_booster, artifact_path="model")
 
                 auc_score = roc_auc_score(y_test, y_proba)
                 mlflow.log_metric("auc_hash_test", auc_score)
 
-                # También es vital guardar el preprocessor, ya que el Booster no lo incluye
+                #print(" También es vital guardar el preprocessor, ya que el Booster no lo incluye")
                 mlflow.sklearn.log_model(preprocessor, "preprocessor")
 
                 if auc_score > best_auc:
                     best_auc = auc_score
-                    # Guardamos el booster y el nombre para el registro final
+                    id_tag = id_child
+                    print(f"ID tag2: {id_tag}")
+                    print(" Guardamos el booster y el nombre para el registro final")
                     best_booster = trained_booster
                     best_model_type = name
-
-        # Registro del mejor
+            time.sleep(0.05)
+        print(" Registro del mejor")
         if best_model_type == "xgboost":
             mlflow.xgboost.log_model(best_booster, "best_model", registered_model_name=model_name)
         else:
             mlflow.lightgbm.log_model(best_booster, "best_model", registered_model_name=model_name)
+        
+        mlflow.set_tag("id_run_mod", id_tag)
 
     return parent_run.info.run_id, best_auc

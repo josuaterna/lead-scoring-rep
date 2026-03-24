@@ -86,7 +86,7 @@ def subir_archivo(ruta_origen_str: str, final_path: Path, progress_callback=None
             nombre = col.strip().lower().replace(" ", "_")
             nombre = re.sub(r"[^\w]", "", nombre) # Quita todo lo que no sea letra/número/_
             nuevos_encabezados.append(nombre)
-            print(f"Columna procesada: {nombre}")
+            #print(f"Columna procesada: {nombre}")
 
         # 3. PROCESAMIENTO POR CHUNKS
         chunksize = 10000
