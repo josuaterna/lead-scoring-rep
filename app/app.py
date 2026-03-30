@@ -248,7 +248,7 @@ if seleccion_exp_name != "Choose an option":
         elif st.session_state.form_lvl == 3:    
             train_ui(target_exp_id, seleccion_exp_name, st.session_state.nombre_m, st.session_state.nombre_archivo)
             st.session_state.form_lvl = 0
-            st.rerun()
+            #st.rerun()
                         
         elif st.session_state.form_lvl == 4:
             if load_file(st.session_state.nombre_archivo, target_exp_id):

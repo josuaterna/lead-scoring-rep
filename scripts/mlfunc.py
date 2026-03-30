@@ -95,7 +95,10 @@ def promote_if_better(
                 aucs.append(val)
         
         if aucs:
-            current_best_auc = max(aucs)
+            if max(aucs) != 1:
+                current_best_auc = max(aucs)
+            else:
+                print("Current best AUC fail == 1")
             print(f"Mejor AUC actual en producción: {current_best_auc:.4f}")
         else:
             print("No se encontraron métricas 'roc_auc_cv' en los child-runs de producción.")

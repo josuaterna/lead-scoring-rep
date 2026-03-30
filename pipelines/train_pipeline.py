@@ -242,12 +242,18 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
                     mlflow.lightgbm.log_model(trained_booster, artifact_path="model")
 
                 auc_score = roc_auc_score(y_test, y_proba)
+                if auc_score == 1:
+                    auc_score = -1
+                    print(f"Error: AUC == 1")
                 mlflow.log_metric("auc_hash_test", auc_score)
 
-                #print(" También es vital guardar el preprocessor, ya que el Booster no lo incluye")
+                #print(" También es vital guardar el preprocessor, ya qu
+                # 
+                # 
+                # e el Booster no lo incluye")
                 mlflow.sklearn.log_model(preprocessor, "preprocessor")
 
-                if auc_score > best_auc:
+                if auc_score > best_auc and auc_score != 1:
                     best_auc = auc_score
                     id_tag = id_child
                     print(f"ID tag2: {id_tag}")
@@ -262,5 +268,6 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
             mlflow.lightgbm.log_model(best_booster, "best_model", registered_model_name=model_name)
         
         mlflow.set_tag("id_run_mod", id_tag)
-
+    if best_auc ==1:
+        best_auc = -1
     return parent_run.info.run_id, best_auc
