@@ -1,8 +1,7 @@
 import streamlit as st
 import mlflow
-from mlflow.tracking import MlflowClient
-import pandas as pd
 import tkinter as tk
+from mlflow.tracking import MlflowClient
 from tkinter import filedialog
 from src.data_loader import subir_archivo
 from scripts.train import train_big_data
