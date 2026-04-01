@@ -185,15 +185,14 @@ if seleccion_exp_name != "Choose an option":
         if 'form_lvl' not in st.session_state:
             st.session_state.form_lvl = 0                
         col_left, col_right = st.columns(2)
-
+        nombre_m = None
         with col_left:
             # Lista desplegable (se actualiza al cambiar el experimento)
             if models_dict:
                 nombres_modelos = list(models_dict.keys())
-            
-            nombre_m = st.selectbox("Selecciona un modelo:", ["Choose an option"] + nombres_modelos)
+                nombre_m = st.selectbox("Selecciona un modelo:", ["Choose an option"] + nombres_modelos)
             # 3. Lógica de advertencia y file loader
-            if not models_dict:
+            else:
                 st.warning(f"⚠️ No hay modelos en 'production' para: {seleccion_exp_name}")
 
             if nombre_m and nombre_m != "Choose an option":
@@ -228,7 +227,7 @@ if seleccion_exp_name != "Choose an option":
             with col_right:
                 with st.form("form_nuevo_mod", clear_on_submit=True):
                     nombre_m = st.text_input("Nombre model:")
-                    enviado_m = st.form_submit_button("Enviar", key="btn_n_mod")
+                    enviado_m = st.form_submit_button("Enviar", key="btn_nu_mod")
                     if enviado_m:
                         if nombre_m:
                             st.session_state.nombre_m = f"{nombre_m}_model"

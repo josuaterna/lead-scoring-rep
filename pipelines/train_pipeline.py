@@ -123,6 +123,7 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
     dict_categorias = verificar_cobertura_categorias(csv_path, target_col, forced_cat_cols=columnas_a_forzar)
     chunksize = 100000
     sample_df = pd.read_csv(csv_path, nrows=100000, sep=";")
+    dataset_mlflow = mlflow.data.from_pandas(sample_df, name=csv_path.name)
     preprocessor = build_preprocessor_big_data(sample_df, dict_categorias, target_col)
     mlflow.set_experiment(exp_name)
     best_auc = 0
@@ -245,12 +246,9 @@ def train_big_data(csv_path, exp_name, model_name, target_col, progress_callback
                 if auc_score == 1:
                     auc_score = -1
                     print(f"Error: AUC == 1")
-                mlflow.log_metric("auc_hash_test", auc_score)
-
-                #print(" También es vital guardar el preprocessor, ya qu
-                # 
-                # 
-                # e el Booster no lo incluye")
+                mlflow.log_metric("roc_auc", auc_score)
+                mlflow.log_input(dataset_mlflow, context="training")
+                #print(" También es vital guardar el preprocessor, ya que el Booster no lo incluye")
                 mlflow.sklearn.log_model(preprocessor, "preprocessor")
 
                 if auc_score > best_auc and auc_score != 1:
