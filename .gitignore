@@ -6,3 +6,5 @@ scripts/correct.py
 *.db
 .env
 command.txt
+venv.zip
+scripts.zip

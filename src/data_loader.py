@@ -1,4 +1,3 @@
-import shutil
 import gc
 import re
 import pandas as pd
@@ -17,13 +16,6 @@ def load_csv(path: str, nrows=None, usecols=None, chunksize=None) -> pd.DataFram
         usecols=usecols,
         chunksize=chunksize
     )
-    # df.columns = (
-    #     df.columns
-    #     .str.strip()
-    #     .str.lower()
-    #     .str.replace(" ", "_")
-    #     .str.replace(r"[^\w]", "_", regex=True)
-    # )
     return df   
 
 def drop_fields(path):
@@ -62,7 +54,7 @@ def get_path(uploaded_file, final_path):
         raise f"Error al limpiar archivo"
 
 def subir_archivo(ruta_origen_str: str, final_path: Path, progress_callback=None):
-    # 1. Limpieza de ruta y preparación
+    print("# 1. Limpieza de ruta y preparación")
     ruta_origen = Path(ruta_origen_str.strip().strip('"'))
     separador_csv = ";"  # Definimos el separador explícitamente
     
