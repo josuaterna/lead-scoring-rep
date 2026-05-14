@@ -184,10 +184,13 @@ def get_experiment(exp_name):
     else:
         return None
 
-def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=50000):
+def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=50000, pred=0, fact=2000):
     """
     Lee un CSV grande, predice por chunks y guarda el resultado en disco.
     """
+    chunk_max = 0.00
+    chunk_min = 0.00
+
     Path(output_csv_path).unlink(missing_ok=True)
     try:
         run = mlflow.get_run(run_id)
@@ -208,71 +211,127 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
         model = mlflow.xgboost.load_model(model_uri)
         is_lgb = False
 
-    print(" 2. Procesar por Chunks")
-    first_chunk = True
-    # Asumimos separador ';' según tus ejemplos anteriores
-    for chunk in pd.read_csv(input_csv_path, sep=";", chunksize=chunksize):
-        # ... dentro del bucle de chunks ...
-        print(f"DEBUG: Columnas en el CSV: {list(chunk.columns)}")
-        print(f"DEBUG: Columnas esperadas: {list(preprocessor.feature_names_in_)}")
+    # print(" 2. Procesar por Chunks")
+    # first_chunk = True
+    # # Asumimos separador ';' según tus ejemplos anteriores
+    # for chunk in pd.read_csv(input_csv_path, sep=";", chunksize=chunksize):
+    #     # ... dentro del bucle de chunks ...
+    #     print(f"DEBUG: Columnas en el CSV: {list(chunk.columns)}")
+    #     print(f"DEBUG: Columnas esperadas: {list(preprocessor.feature_names_in_)}")
 
-        columnas_esperadas = list(preprocessor.feature_names_in_)
-        for col in columnas_esperadas:
-            if col not in chunk.columns:
-                chunk[col] = 0 # Creamos columnas faltantes (incluyendo el target)
+    #     columnas_esperadas = list(preprocessor.feature_names_in_)
+    #     for col in columnas_esperadas:
+    #         if col not in chunk.columns:
+    #             chunk[col] = 0 # Creamos columnas faltantes (incluyendo el target)
         
-        chunk_features = chunk[columnas_esperadas].copy()
+    #     chunk_features = chunk[columnas_esperadas].copy()
         
-        print(" Transformación")
+    #     print(" Transformación")
+    #     X_trans = preprocessor.transform(chunk_features)
+    #     # 3. Filtrado con copia explícita
+    #     print("DEBUG: Intentando filtrar columnas...")
+    #     chunk_features = chunk[list(preprocessor.feature_names_in_)].copy()
+    #     print("✅ Filtrado exitoso.")
+        
+    #     print(" Validación/Reordenamiento de columnas (usando la lógica que definimos antes")
+    #     if hasattr(preprocessor, "feature_names_in_"):
+    #         print(f"DEBUG: Filtrando {len(preprocessor.feature_names_in_)} columnas")
+    #         chunk_features = chunk[preprocessor.feature_names_in_].copy()
+    #     else:
+    #         print("DEBUG: Usando chunk completo")
+    #         chunk_features = chunk
+            
+    #     print("DEBUG: Iniciando Transformación...")
+    #     try:
+    #         X_trans = preprocessor.transform(chunk_features)
+    #         print(f"DEBUG: Transformación exitosa. Shape: {X_trans.shape}")
+    #     except Exception as e:
+    #         print(f"❌ ERROR en Transformación: {str(e)}")
+    #         raise e # Forzar el error para ver el traceback completo
+        
+    #     if hasattr(X_trans, "toarray"):
+    #         print("DEBUG: Convirtiendo matriz dispersa a densa...")
+    #         X_trans = X_trans.toarray()
+            
+    #     print(" Predicción")
+    #     if is_lgb:
+    #         raw_preds = model.predict(X_trans, raw_score=True)
+    #     else:
+    #         raw_preds = model.predict(xgb.DMatrix(X_trans), output_margin= True )
+
+    #     probs = sigmoid(raw_preds)
+
+    #     print(" Añadir resultados al chunk actual")
+    #     chunk['probabilidad'] = probs
+    #     #chunk['prediccion'] = (probs > pred).astype(int)
+    #     chunk_max = chunk['probabilidad'].max()
+    #     chunk_min = chunk['probabilidad'].min()
+    #     if global_max < chunk_max:
+    #         global_max = chunk_max
+    #     if global_min > chunk_min:
+    #         global_min = chunk_min
+    #     # Si es el primer chunk, escribimos el header. Si no, lo omitimos.
+    #     chunk.to_csv(output_csv_path, 
+    #                  mode='a', 
+    #                  index=False, 
+    #                  sep=";", 
+    #                  header=first_chunk)
+    #     first_chunk = False
+    chunk = pd.read_csv(input_csv_path, sep=";")
+    columnas_esperadas = list(preprocessor.feature_names_in_)
+    for col in columnas_esperadas:
+        if col not in chunk.columns:
+            chunk[col] = 0 # Creamos columnas faltantes (incluyendo el target)
+    chunk_features = chunk[columnas_esperadas].copy()
+    print(" Transformación")
+    X_trans = preprocessor.transform(chunk_features)
+    # 3. Filtrado con copia explícita
+    print("DEBUG: Intentando filtrar columnas...")
+    chunk_features = chunk[list(preprocessor.feature_names_in_)].copy()
+    print("✅ Filtrado exitoso.")
+    
+    print(" Validación/Reordenamiento de columnas")
+    if hasattr(preprocessor, "feature_names_in_"):
+        print(f"DEBUG: Filtrando {len(preprocessor.feature_names_in_)} columnas")
+        chunk_features = chunk[preprocessor.feature_names_in_].copy()
+    else:
+        print("DEBUG: Usando chunk completo")
+        chunk_features = chunk
+        
+    print("DEBUG: Iniciando Transformación...")
+    try:
         X_trans = preprocessor.transform(chunk_features)
-        # 3. Filtrado con copia explícita
-        print("DEBUG: Intentando filtrar columnas...")
-        chunk_features = chunk[list(preprocessor.feature_names_in_)].copy()
-        print("✅ Filtrado exitoso.")
+        print(f"DEBUG: Transformación exitosa. Shape: {X_trans.shape}")
+    except Exception as e:
+        print(f"❌ ERROR en Transformación: {str(e)}")
+        raise e # Forzar el error para ver el traceback completo
+    
+    if hasattr(X_trans, "toarray"):
+        print("DEBUG: Convirtiendo matriz dispersa a densa...")
+        X_trans = X_trans.toarray()
         
-        print(" Validación/Reordenamiento de columnas (usando la lógica que definimos antes")
-        if hasattr(preprocessor, "feature_names_in_"):
-            print(f"DEBUG: Filtrando {len(preprocessor.feature_names_in_)} columnas")
-            chunk_features = chunk[preprocessor.feature_names_in_].copy()
-        else:
-            print("DEBUG: Usando chunk completo")
-            chunk_features = chunk
-            
-        print("DEBUG: Iniciando Transformación...")
-        try:
-            X_trans = preprocessor.transform(chunk_features)
-            print(f"DEBUG: Transformación exitosa. Shape: {X_trans.shape}")
-        except Exception as e:
-            print(f"❌ ERROR en Transformación: {str(e)}")
-            raise e # Forzar el error para ver el traceback completo
-        
-        if hasattr(X_trans, "toarray"):
-            print("DEBUG: Convirtiendo matriz dispersa a densa...")
-            X_trans = X_trans.toarray()
-            
-        print(" Predicción")
-        if is_lgb:
-            raw_preds = model.predict(X_trans, raw_score=True)
-        else:
-            raw_preds = model.predict(xgb.DMatrix(X_trans), output_margin= True )
+    print(" Predicción")
+    if is_lgb:
+        raw_preds = model.predict(X_trans, raw_score=True)
+    else:
+        raw_preds = model.predict(xgb.DMatrix(X_trans), output_margin= True )
 
-        probs = sigmoid(raw_preds)
+    probs = sigmoid(raw_preds)
 
-        print(" Añadir resultados al chunk actual")
-        chunk['probabilidad'] = probs
-        chunk['prediccion'] = (probs > 0.5).astype(int)
-        
-        print(
-            
-        )
-        # Si es el primer chunk, escribimos el header. Si no, lo omitimos.
-        chunk.to_csv(output_csv_path, 
-                     mode='a', 
-                     index=False, 
-                     sep=";", 
-                     header=first_chunk)
-        first_chunk = False
-        
+    print(" Añadir resultados al chunk actual")
+    chunk['probabilidad'] = probs
+    chunk_max = chunk['probabilidad'].max()
+    chunk_min = chunk['probabilidad'].min()
+    chunk_rango = chunk_max - chunk_min
+    chunk['prediccion'] = ((chunk['probabilidad'] - chunk_min)/chunk_rango)
+
+    chunk.to_csv(output_csv_path, 
+                    mode='a', 
+                    index=False, 
+                    sep=";", 
+#                    header=first_chunk
+                    )
+
     return output_csv_path
 
 def pertenece_a_test(row, test_size_percent=15):

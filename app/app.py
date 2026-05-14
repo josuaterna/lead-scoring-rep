@@ -8,6 +8,7 @@ from src.data_loader import subir_archivo
 from scripts.mlfunc import train_big_data
 from scripts.mlfunc import promote_if_better
 from scripts.mlfunc import batch_predict_to_disk
+from src.preprocessing import procesar_csv_anonim
 from pathlib import Path
 from PIL import Image
 
