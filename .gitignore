@@ -3,8 +3,9 @@ venv/
 mlruns/
 data/
 scripts/correct.py
+command.txt
 *.db
 .env
 command.txt
 venv.zip
-scripts.zip
+scripts.zip 
