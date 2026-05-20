@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import xgboost as xgb
 import pandas as pd
 
+#VENTA CANTADA|VENTA NO CONFIRMADA|VENTA EFECTIVA|CLIENTE  DESISTE
+
 # 1. Cargar el booster desde MLflow
 path = f"C:\\Users\\gitol\\Downloads\\JUL_AGO_SEP_2025_limpio.csv"
 run_id = "7eb469a37e4e482faf242514351302bd"

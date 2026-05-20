@@ -1,16 +1,11 @@
 import shutil
 import hashlib
 import time
-import shutil
-import hashlib
-import time
 import mlflow
-import mlflow.sklearn
 import mlflow.sklearn
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-import lightgbm as lgb
 import lightgbm as lgb
 from pathlib import Path
 from mlflow.tracking import MlflowClient
@@ -130,10 +125,6 @@ def promote_if_better(
                 current_best_auc = max(aucs)
             else:
                 print("Current best AUC fail == 1")
-            if max(aucs) != 1:
-                current_best_auc = max(aucs)
-            else:
-                print("Current best AUC fail == 1")
             print(f"Mejor AUC actual en producción: {current_best_auc:.4f}")
         else:
             print("No se encontraron métricas 'roc_auc_cv' en los child-runs de producción.")
@@ -215,9 +206,6 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
     """
     Lee un CSV grande, predice por chunks y guarda el resultado en disco.
     """
-    chunk_max = 0.00
-    chunk_min = 0.00
-
     chunk_max = 0.00
     chunk_min = 0.00
 

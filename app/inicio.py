@@ -29,9 +29,9 @@ def modulo_login():
     st.caption("Soluciones Inteligentes de Contact Center & BPO")
     crear_tabla()
     if 'autenticado' not in st.session_state:
-        st.session_state.autenticado = True
+        st.session_state.autenticado = None
     if 'username' not in st.session_state:
-        st.session_state.username = "josuaterna"
+        st.session_state.username = None
 
     if not st.session_state.autenticado:
         tab1, tab2, tab3 = st.tabs(["Login", "Registro", "Cambiar contraseña"])
@@ -625,6 +625,8 @@ from scripts.mlfunc import train_big_data
 from scripts.mlfunc import promote_if_better
 from scripts.mlfunc import batch_predict_to_disk
 from src.preprocessing import procesar_csv_multiple_filtros
+from src.evaluation import graficar_ganancia
+from src.evaluation import graficar_ganancia_comparativa
 
 
 FOLDER_DATA = Path(__file__).parent
@@ -638,9 +640,9 @@ def modulo_login():
     st.caption("Soluciones Inteligentes de Contact Center & BPO")
     crear_tabla()
     if 'autenticado' not in st.session_state:
-        st.session_state.autenticado = False
+        st.session_state.autenticado = True
     if 'username' not in st.session_state:
-        st.session_state.username = None
+        st.session_state.username = "josuaterna"
 
     if not st.session_state.autenticado:
         tab1, tab2, tab3 = st.tabs(["Login", "Registro", "Cambiar contraseña"])
@@ -797,6 +799,7 @@ def modulo_interfaz_principal():
 
         def score_ui(run_id, path_in, path_out):
             print("Inicio score_ui")
+            fig = None
             print(run_id)
             print(path_in)
             print(path_out)
@@ -810,11 +813,12 @@ def modulo_interfaz_principal():
                     with st.spinner("Scoring..."):
                         try:
                             print(" Ejecutar la predicción pesada")
-                            batch_predict_to_disk(
+                            fig = batch_predict_to_disk(
                                 run_id=run_id,
                                 input_csv_path=path_in,
                                 output_csv_path=path_out
                             )
+                            st.pyplot(fig)
                             st.success(f"Procesamiento finalizado.")
                             
                             # Botón de descarga: Lee del archivo físico
@@ -1165,6 +1169,29 @@ def modulo_depuracion_leads():
                 except Exception as e:
                     st.error(f"Se produjo un error al procesar o descargar el archivo: {e}")
 
+def modulo_gráfica():
+    def validar_campos_existentes(df, campos):
+        """
+        Función que verifica si una lista de campos existe en un DataFrame.
+        """
+        # Se usa el método issubset() combinado con set() para una validación vectorial rápida
+        if set(campos).issubset(df.columns):
+            return True
+        else:
+            return False
+    fig = None
+    campos = ["prediccion", "contacto_positivo"]
+    campos1 = ["prediccion"]
+    archivo_cargado = st.file_uploader("Cargar registros de campaña (CSV ;)", type=['csv'], key="depurador")
+    if archivo_cargado:
+        df = pd.read_csv(archivo_cargado, sep=';', encoding='utf-8')
+        if validar_campos_existentes(df, campos):
+            fig = graficar_ganancia_comparativa(df, "prediccion", "contacto_positivo")    
+        elif validar_campos_existentes(df, campos1):
+            fig = graficar_ganancia(df, "prediccion")
+        if fig:
+            st.pyplot(fig)
+      
 # --- 3. BARRA LATERAL (SIDEBAR) PARA NAVEGACIÓN ---
 
 with st.sidebar:
@@ -1175,7 +1202,7 @@ with st.sidebar:
     opcion = st.radio(
         #"Seleccione el módulo:",
         "",
-        ("Login","Modelos"),
+        ("Login","Modelos", "Gráfica", "Depuración"),
         index=0,
         #help="Cambie entre la operación normal y la configuración de filtros de depuración."
     )
@@ -1191,4 +1218,6 @@ elif opcion == "Login":
     modulo_login()    
 elif opcion == "Depuración":
     modulo_depuracion_leads()
+elif opcion == "Gráfica":
+    modulo_gráfica()    
 >>>>>>> 61fdf76 (Depuración de scripts)
