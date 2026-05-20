@@ -1,12 +1,17 @@
 import shutil
 import hashlib
 import time
+import shutil
+import hashlib
+import time
+import mlflow
+import mlflow.sklearn
+import mlflow.sklearn
 import pandas as pd
 import numpy as np
 import xgboost as xgb
 import lightgbm as lgb
-import mlflow
-import mlflow.sklearn
+import lightgbm as lgb
 from pathlib import Path
 from mlflow.tracking import MlflowClient
 from mlflow.exceptions import MlflowException
@@ -14,11 +19,29 @@ from sklearn.metrics import roc_auc_score
 from src.preprocessing import build_preprocessor_big_data
 from src.preprocessing import verificar_cobertura_categorias
 from src.model_selection import get_models
+from src.evaluation import graficar_ganancia
+from src.evaluation import graficar_ganancia_comparativa
 
 FOLDER_DATA = Path(__file__).parent
 
 client = MlflowClient()
 
+def grafica(df, campos1, campos2):
+    def validar_campos_existentes(df, campos):
+        """
+        Función que verifica si una lista de campos existe en un DataFrame.
+        """
+        # Se usa el método issubset() combinado con set() para una validación vectorial rápida
+        if set(campos).issubset(df.columns):
+            return True
+        else:
+            return False
+    fig = None
+    if validar_campos_existentes(df, campos1):
+        fig = graficar_ganancia_comparativa(df, "prediccion", "contacto_positivo")    
+    elif validar_campos_existentes(df, campos1):
+        fig = graficar_ganancia(df, "prediccion")
+    return fig
 
 def sigmoid(x):
     """Convierte scores brutos en probabilidades [0, 1]"""
@@ -107,6 +130,10 @@ def promote_if_better(
                 current_best_auc = max(aucs)
             else:
                 print("Current best AUC fail == 1")
+            if max(aucs) != 1:
+                current_best_auc = max(aucs)
+            else:
+                print("Current best AUC fail == 1")
             print(f"Mejor AUC actual en producción: {current_best_auc:.4f}")
         else:
             print("No se encontraron métricas 'roc_auc_cv' en los child-runs de producción.")
@@ -191,6 +218,9 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
     chunk_max = 0.00
     chunk_min = 0.00
 
+    chunk_max = 0.00
+    chunk_min = 0.00
+
     Path(output_csv_path).unlink(missing_ok=True)
     try:
         run = mlflow.get_run(run_id)
@@ -211,72 +241,44 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
         model = mlflow.xgboost.load_model(model_uri)
         is_lgb = False
 
-    # print(" 2. Procesar por Chunks")
-    # first_chunk = True
-    # # Asumimos separador ';' según tus ejemplos anteriores
-    # for chunk in pd.read_csv(input_csv_path, sep=";", chunksize=chunksize):
-    #     # ... dentro del bucle de chunks ...
-    #     print(f"DEBUG: Columnas en el CSV: {list(chunk.columns)}")
-    #     print(f"DEBUG: Columnas esperadas: {list(preprocessor.feature_names_in_)}")
-
-    #     columnas_esperadas = list(preprocessor.feature_names_in_)
-    #     for col in columnas_esperadas:
-    #         if col not in chunk.columns:
-    #             chunk[col] = 0 # Creamos columnas faltantes (incluyendo el target)
+    chunk = pd.read_csv(input_csv_path, sep=";")
+    columnas_esperadas = list(preprocessor.feature_names_in_)
+    for col in columnas_esperadas:
+        if col not in chunk.columns:
+            chunk[col] = 0 # Creamos columnas faltantes (incluyendo el target)
+    chunk_features = chunk[columnas_esperadas].copy()
+    print(" Transformación")
+    X_trans = preprocessor.transform(chunk_features)
+    # 3. Filtrado con copia explícita
+    print("DEBUG: Intentando filtrar columnas...")
+    chunk_features = chunk[list(preprocessor.feature_names_in_)].copy()
+    print("✅ Filtrado exitoso.")
+    
+    print(" Validación/Reordenamiento de columnas")
+    if hasattr(preprocessor, "feature_names_in_"):
+        print(f"DEBUG: Filtrando {len(preprocessor.feature_names_in_)} columnas")
+        chunk_features = chunk[preprocessor.feature_names_in_].copy()
+    else:
+        print("DEBUG: Usando chunk completo")
+        chunk_features = chunk
         
-    #     chunk_features = chunk[columnas_esperadas].copy()
+    print("DEBUG: Iniciando Transformación...")
+    try:
+        X_trans = preprocessor.transform(chunk_features)
+        print(f"DEBUG: Transformación exitosa. Shape: {X_trans.shape}")
+    except Exception as e:
+        print(f"❌ ERROR en Transformación: {str(e)}")
+        raise e # Forzar el error para ver el traceback completo
+    
+    if hasattr(X_trans, "toarray"):
+        print("DEBUG: Convirtiendo matriz dispersa a densa...")
+        X_trans = X_trans.toarray()
         
-    #     print(" Transformación")
-    #     X_trans = preprocessor.transform(chunk_features)
-    #     # 3. Filtrado con copia explícita
-    #     print("DEBUG: Intentando filtrar columnas...")
-    #     chunk_features = chunk[list(preprocessor.feature_names_in_)].copy()
-    #     print("✅ Filtrado exitoso.")
-        
-    #     print(" Validación/Reordenamiento de columnas (usando la lógica que definimos antes")
-    #     if hasattr(preprocessor, "feature_names_in_"):
-    #         print(f"DEBUG: Filtrando {len(preprocessor.feature_names_in_)} columnas")
-    #         chunk_features = chunk[preprocessor.feature_names_in_].copy()
-    #     else:
-    #         print("DEBUG: Usando chunk completo")
-    #         chunk_features = chunk
-            
-    #     print("DEBUG: Iniciando Transformación...")
-    #     try:
-    #         X_trans = preprocessor.transform(chunk_features)
-    #         print(f"DEBUG: Transformación exitosa. Shape: {X_trans.shape}")
-    #     except Exception as e:
-    #         print(f"❌ ERROR en Transformación: {str(e)}")
-    #         raise e # Forzar el error para ver el traceback completo
-        
-    #     if hasattr(X_trans, "toarray"):
-    #         print("DEBUG: Convirtiendo matriz dispersa a densa...")
-    #         X_trans = X_trans.toarray()
-            
-    #     print(" Predicción")
-    #     if is_lgb:
-    #         raw_preds = model.predict(X_trans, raw_score=True)
-    #     else:
-    #         raw_preds = model.predict(xgb.DMatrix(X_trans), output_margin= True )
-
-    #     probs = sigmoid(raw_preds)
-
-    #     print(" Añadir resultados al chunk actual")
-    #     chunk['probabilidad'] = probs
-    #     #chunk['prediccion'] = (probs > pred).astype(int)
-    #     chunk_max = chunk['probabilidad'].max()
-    #     chunk_min = chunk['probabilidad'].min()
-    #     if global_max < chunk_max:
-    #         global_max = chunk_max
-    #     if global_min > chunk_min:
-    #         global_min = chunk_min
-    #     # Si es el primer chunk, escribimos el header. Si no, lo omitimos.
-    #     chunk.to_csv(output_csv_path, 
-    #                  mode='a', 
-    #                  index=False, 
-    #                  sep=";", 
-    #                  header=first_chunk)
-    #     first_chunk = False
+    print(" Predicción")
+    if is_lgb:
+        raw_preds = model.predict(X_trans, raw_score=True)
+    else:
+        raw_preds = model.predict(xgb.DMatrix(X_trans), output_margin= True )
     chunk = pd.read_csv(input_csv_path, sep=";")
     columnas_esperadas = list(preprocessor.feature_names_in_)
     for col in columnas_esperadas:
@@ -317,6 +319,7 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
         raw_preds = model.predict(xgb.DMatrix(X_trans), output_margin= True )
 
     probs = sigmoid(raw_preds)
+    probs = sigmoid(raw_preds)
 
     print(" Añadir resultados al chunk actual")
     chunk['probabilidad'] = probs
@@ -324,6 +327,10 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
     chunk_min = chunk['probabilidad'].min()
     chunk_rango = chunk_max - chunk_min
     chunk['prediccion'] = ((chunk['probabilidad'] - chunk_min)/chunk_rango)
+    fig = None
+    campos = ["prediccion", "contacto_positivo"]
+    campos1 = ["prediccion"]
+    fig = grafica (chunk, campos, campos1)
 
     chunk.to_csv(output_csv_path, 
                     mode='a', 
@@ -332,7 +339,7 @@ def batch_predict_to_disk(run_id, input_csv_path, output_csv_path, chunksize=500
 #                    header=first_chunk
                     )
 
-    return output_csv_path
+    return fig
 
 def pertenece_a_test(row, test_size_percent=15):
     """
