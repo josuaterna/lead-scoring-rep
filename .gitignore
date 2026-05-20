@@ -2,6 +2,7 @@ __pycache__/
 venv/
 mlruns/
 data/
+src/tmp/
 scripts/correct.py
 command.txt
 src/tmp/
