@@ -4,6 +4,7 @@ mlruns/
 data/
 scripts/correct.py
 command.txt
+src/tmp/
 *.db
 .env
 command.txt
