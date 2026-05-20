@@ -43,6 +43,50 @@ def procesar_csv_anonim(ruta_entrada, ruta_salida, target_col, campos, patron, c
     df_final.to_csv(ruta_salida, sep=';', index=False, encoding='utf-8')
     print(f"Archivo depurado con éxito.")
 
+#def procesar_csv_multiple_filtros(ruta_entrada, ruta_salida, target_col, campos_mantener, filtros):
+def procesar_csv_multiple_filtros(ruta_entrada, ruta_salida, target_col, campos_mantener, filtros):
+    df = pd.read_csv(ruta_entrada, sep=';', dtype=str, encoding='utf-8')
+    
+    # Máscara inicial: Todo verdadero
+    mascara = pd.Series(True, index=df.index)
+
+    for f in filtros:
+        campo = f['campo']
+        op = f['operador']
+        valor = str(f['valor']).strip()
+
+        if not valor: continue  # Saltar si no hay valor para comparar
+
+        try:
+            if op == "es igual a":
+                mascara &= (df[campo].astype(str) == valor)
+            elif op == "contiene":
+                # Soporta 'VENTA|COBRO|DESISTE' gracias a Regex
+                mascara &= (df[campo].astype(str).str.contains(valor, case=False, na=False))
+            
+            elif op in ["mayor que", "menor que", "igual"]:
+                # Convertir columna y valor a numérico de forma segura
+                col_num = pd.to_numeric(df[campo], errors='coerce')
+                val_num = float(valor)
+                
+                if op == "mayor que": mascara &= (col_num > val_num)
+                elif op == "menor que": mascara &= (col_num < val_num)
+                elif op == "igual": mascara &= (col_num == val_num)
+        except Exception as e:
+            print(f"Error procesando campo {campo}: {e}")
+            continue
+
+    # Crear columna Target
+    df[target_col] = np.where(mascara, "1", "0")
+
+    # Asegurar que el target esté en la salida aunque no se pida explícitamente
+    columnas_finales = [c for c in campos_mantener if c in df.columns]
+    if target_col not in columnas_finales:
+        columnas_finales.append(target_col)
+    print(f"procesar_csv_multiple_filtro - ESCRIBIR CSV -- {ruta_salida}")
+    df[columnas_finales].to_csv(ruta_salida, sep=';', index=False, encoding='utf-8')
+    return True
+
 def build_preprocessor(df, target_col):
     numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.drop(target_col)
     categorical_cols = df.select_dtypes(include=["object"]).columns
