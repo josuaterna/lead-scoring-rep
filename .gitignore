@@ -1,0 +1,12 @@
+__pycache__/
+venv/
+mlruns/
+data/
+src/tmp/*
+scripts/correct.py
+command.txt
+*.db
+.env
+command.txt
+venv.zip
+scripts.zip
