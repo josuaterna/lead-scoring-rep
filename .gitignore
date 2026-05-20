@@ -3,6 +3,7 @@ venv/
 mlruns/
 data/
 scripts/correct.py
+src/tmp/
 *.db
 .env
 command.txt
