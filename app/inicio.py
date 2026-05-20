@@ -1,68 +1,26 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from pathlib import Path
-from src.preprocessing import procesar_csv_multiple_filtros
 import mlflow
-import tkinter as tk
+from pathlib import Path
+from PIL import Image
+from pathlib import Path
 from mlflow.tracking import MlflowClient
-from tkinter import filedialog
-from src.data_loader import subir_archivo
 from scripts.mlfunc import train_big_data
 from scripts.mlfunc import promote_if_better
 from scripts.mlfunc import batch_predict_to_disk
-from src.preprocessing import procesar_csv_anonim
-from pathlib import Path
-from PIL import Image
+from src.preprocessing import procesar_csv_multiple_filtros
 
-
-# Definición de rutas base
 FOLDER_DATA = Path(__file__).parent
 
-# --- 1. CONFIGURACIÓN DE LA PÁGINA ---
-#st.set_page_config(page_title="TFM - Plataforma de Scoring", layout="wide")
 fav = Image.open(FOLDER_DATA / "img" / "favicon.png" )
 logo = Image.open(FOLDER_DATA / "img" / "logo.png" )
-st.set_page_config(page_icon=fav, page_title="Lead Scoring")
+st.set_page_config(page_icon=fav, page_title="Lead Scoring", layout="wide")
 
-# --- 2. DEFINICIÓN DE MÓDULOS (FUNCIONES) ---
+def modulo_login():
+    return
 
 def modulo_interfaz_principal():
     client = MlflowClient()
-
-    def load_file(file_name, exp_id):
-        ruta = None
-        #st.subheader(f"Cargando datos para: {file_name}")
-        # En lugar de otro formulario, usa un botón simple para disparar el diálogo de archivos
-        if st.button("Seleccionar Archivo CSV", key="btn_explore"):
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes('-topmost', True)
-            ruta = filedialog.askopenfilename(master=root)
-            root.destroy() # Importante cerrar la instancia de tk
-            
-            if ruta:
-                st.session_state.ruta_manual = ruta
-                print(f"st.session_state.ruta_manual={st.session_state.ruta_manual}")
-
-        # Si ya tenemos la ruta, procedemos al procesamiento
-        if 'ruta_manual' in st.session_state:
-            ruta_origen = st.text_input("Ruta seleccionada:", value=st.session_state.ruta_manual)
-            final_path = FOLDER_DATA.parent / "mlruns" / exp_id / f"{file_name}.csv"
-            file_name_original = Path(st.session_state.ruta_manual).name
-            print(f"file_name_original={file_name_original}")
-            
-            if st.button("Confirmar y Procesar",key="btn_load"):
-                status_text = st.empty()
-                def mi_progreso(n_chunk, n_filas):
-                    status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
-                try:
-                    total = subir_archivo(ruta_origen, final_path, progress_callback=mi_progreso)
-                    st.success(f"¡Archivo guardado: {total} filas!")
-                    return file_name_original
-                except Exception as e:
-                    st.error(f"Error: {e}")
-                    return None
 
     def load_file_remote(file_name, exp_id, tipo_accion):
         file_name_original = None
@@ -72,27 +30,57 @@ def modulo_interfaz_principal():
             st.session_state.ruta_manual = file_name_original 
             st.text_input("Archivo seleccionado:", value=st.session_state.ruta_manual, disabled=True)
             final_path = FOLDER_DATA.parent / "mlruns" / exp_id / f"{file_name}.csv"
-            if st.button(f"Confirmar y {tipo_accion}", key="btn_load"):
-                status_text = st.empty()
-                def mi_progreso(n_chunk, n_filas):
-                    status_text.info(f"📊 Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
+            if tipo_accion == "entrenar":
                 try:
-                    total_filas = 0
-                    n_chunk = 1
-                    final_path.parent.mkdir(parents=True, exist_ok=True)
-                    reader = pd.read_csv(uploaded_file, sep=";", chunksize=50000)
-                    for chunk in reader:
-                        modo = 'w' if n_chunk == 1 else 'a'
-                        header = True if n_chunk == 1 else False
-                        chunk.to_csv(final_path, mode=modo, index=False, sep=";", header=header)
-                        total_filas += len(chunk)
-                        mi_progreso(n_chunk, total_filas)
-                        n_chunk += 1
-                    st.success(f"¡Archivo guardado en servidor: {total_filas} filas!")
+                    st.header("Módulo de Depuración y Etiquetado")
+                    if 'procesamiento_exitoso' not in st.session_state:
+                        st.session_state.procesamiento_exitoso = False
+                    @st.cache_data
+                    def cargar_datos(file):
+                        # Carga optimizada
+                        return pd.read_csv(file, sep=';', dtype=str, encoding='utf-8')
+                    df = cargar_datos(uploaded_file)
+                    print(f"Modulo depuracion df creado")
+                    columnas = list(df.columns)
+                    print(f" --- SECCIÓN 1: UI de Filtros Dinámicos ---")
+                    st.subheader("1. Configurar Reglas de Filtrado (Target)")
+                    col_check, col_name, col_op, col_val = st.columns([0.5, 2, 2, 2])
+                    col_name.write("**Campo**")
+                    col_op.write("**Validación**")
+                    col_val.write("**Valor**")
+                    columnas_seleccionadas = st.multiselect(
+                        "Seleccione los campos a los que desea aplicar filtros/validaciones:",
+                        options=columnas,
+                        help="Seleccione una o varias columnas para desplegar sus opciones de validación."
+                    )
+                    st.divider()
+                    modulo_depuracion_leads(df, uploaded_file, final_path, columnas, columnas_seleccionadas)
                     return file_name_original
                 except Exception as e:
                     st.error(f"Error en el servidor: {e}")
                     return None
+            else:
+                if st.button(f"Confirmar y {tipo_accion}", key="btn_load"):
+                    status_text = st.empty()
+                    def mi_progreso(n_chunk, n_filas):
+                        status_text.info(f"Procesando fragmento #{n_chunk} | Filas leídas: {n_filas:,}")
+                    try:
+                        total_filas = 0
+                        n_chunk = 1
+                        final_path.parent.mkdir(parents=True, exist_ok=True)
+                        reader = pd.read_csv(uploaded_file, sep=";", chunksize=50000)
+                        for chunk in reader:
+                            modo = 'w' if n_chunk == 1 else 'a'
+                            header = True if n_chunk == 1 else False
+                            chunk.to_csv(final_path, mode=modo, index=False, sep=";", header=header)
+                            total_filas += len(chunk)
+                            mi_progreso(n_chunk, total_filas)
+                            n_chunk += 1
+                        st.success(f"¡Archivo guardado en servidor: {total_filas} filas!")
+                        return file_name_original
+                    except Exception as e:
+                        st.error(f"Error en el servidor: {e}")
+                        return None
         return None
 
     def train_ui(exp_id, exp_name, mod_name, file_name, file_name_or):
@@ -112,8 +100,6 @@ def modulo_interfaz_principal():
                 run_id, new_auc = train_big_data(file_path, exp_name, mod_name, "contacto_positivo", progress_callback=actualizar_ui, file_name_or=file_name_or)
                 
             st.success(f"Modelo entrenado. Run ID: {run_id} - AUC: {new_auc:.4f}")
-            # run_id, new_auc = train(file_path, exp_names.name, texto_m, "contacto_positivo")
-            # st.success(f"Entrenamiento finalizado.")
             promoted, old_auc = promote_if_better(exp_name, mod_name, run_id, new_auc)
             st.success(f"Entrenamiento finalizado. Promovido: {promoted} - AUC anterior/nuevo: {old_auc} / {new_auc}")
 
@@ -158,6 +144,72 @@ def modulo_interfaz_principal():
                     except Exception as e:
                         st.error(f"Ocurrió un error: {e}")
 
+    def modulo_depuracion_leads(df, archivo_cargado, path_out, columnas, columnas_seleccionadas):
+        filtros_seleccionados = []
+        with st.form(key="config_depuracion"):
+            for columna in columnas_seleccionadas:
+                c1, c2, c3, c4 = st.columns([0.5, 2, 2, 2])
+                with c1: 
+                    # Como el usuario ya lo seleccionó arriba, lo marcamos True por defecto
+                    activar_filtro = st.checkbox(
+                        f"Filtrar por {columna}", 
+                        value=True, # <-- Mejora de usabilidad
+                        key=f"chk_{columna}", 
+                        label_visibility="collapsed"
+                    )
+                    
+                with c2: 
+                    st.write(columna)
+                
+                # Detección de tipo para sugerir el operador correcto
+                es_num = pd.api.types.is_numeric_dtype(pd.to_numeric(df[columna], errors='ignore'))
+                
+                with c3:
+                    op = st.selectbox(
+                        "Op", 
+                        ["mayor que", "menor que", "igual"] if es_num else ["es igual a", "contiene"], 
+                        key=f"op_{columna}", 
+                        label_visibility="collapsed"
+                    )
+                    
+                with c4:
+                    val = st.text_input(
+                        "Valor", 
+                        key=f"val_{columna}", 
+                        label_visibility="collapsed", 
+                        placeholder="ej: VENTA|DESISTE"
+                    )
+                
+                # 3. Solo agregamos a la lista final si el checkbox se mantiene activo
+                if activar_filtro:
+                    filtros_seleccionados.append({"campo": columna, "operador": op, "valor": val})            
+        
+            st.subheader("2. Selección de Columnas para el Archivo Final")
+            campos_a_mantener = st.multiselect(
+                "Seleccione los campos que desea mantener en el CSV de salida:",
+                options=columnas,
+                help="Puede eliminar los campos que no desea usar para el modelo de ML."
+            )
+
+            target_name = st.text_input("Nombre de columna Target", value="contacto_positivo")
+            #print(f" --- SECCIÓN 3: Procesamiento y Descarga ---")
+            boton_procesar = st.form_submit_button(label="Procesar archivo", type="primary")
+        
+        if boton_procesar:
+            if not campos_a_mantener:
+                st.warning("Debe seleccionar al menos un campo para exportar.")
+                st.stop()
+            st.success(f"Procesando {len(filtros_seleccionados)} reglas de negocio...")
+            try:
+                procesar_csv_multiple_filtros(archivo_cargado, path_out, target_name, campos_a_mantener, filtros_seleccionados)
+                st.session_state.procesamiento_exitoso = True
+            except Exception as e:
+                st.error(f"Se produjo un error al procesar o descargar el archivo: {e}")
+                return e
+        if not st.session_state.procesamiento_exitoso:
+            st.info("Esperando procesamiento para continuar...")
+            st.stop()
+            
     st.divider()
     with st.container():
         col_logo, col_text = st.columns([5 , 10])
@@ -298,20 +350,19 @@ def modulo_interfaz_principal():
 
                     # NIVEL 2: Carga de Archivo (Llamada a la función)
             elif st.session_state.form_lvl == 2:
-                with col_right:
-                    try:
-                        print("Pre load_file")
-                        print(f"st.session_state.nombre_archivo={st.session_state.nombre_archivo}")
-                        file_name_or = load_file_remote(st.session_state.nombre_archivo, target_exp_id, "entrenar")
-                        print(f"file_name_or={file_name_or}")
-                        st.session_state.nombre_archivo_original = file_name_or
-                        print(f"st.session_state.nombre_archivo_original={st.session_state.nombre_archivo_original}")
-                    except Exception as e:
-                        st.warning(e)
-                    if file_name_or:
-                        st.session_state.form_lvl = 3
-                        print(f"st.session_state.form_lvl={st.session_state.form_lvl}")
-                        st.rerun()
+                try:
+                    print("Pre load_file")
+                    print(f"st.session_state.nombre_archivo={st.session_state.nombre_archivo}")
+                    file_name_or = load_file_remote(st.session_state.nombre_archivo, target_exp_id, "entrenar")
+                    print(f"file_name_or={file_name_or}")
+                    st.session_state.nombre_archivo_original = file_name_or
+                    print(f"st.session_state.nombre_archivo_original={st.session_state.nombre_archivo_original}")
+                except Exception as e:
+                    st.warning(e)
+                if file_name_or:
+                    st.session_state.form_lvl = 3
+                    print(f"st.session_state.form_lvl={st.session_state.form_lvl}")
+                    st.rerun()
             elif st.session_state.form_lvl == 3:    
                 train_ui(target_exp_id, seleccion_exp_name, st.session_state.nombre_m, st.session_state.nombre_archivo, st.session_state.nombre_archivo_original)
                 st.session_state.form_lvl = 0
@@ -435,7 +486,7 @@ with st.sidebar:
     # Selección de Módulo
     opcion = st.radio(
         "Seleccione el módulo:",
-        ("Modelos", "Depuración"),
+        ("Login","Modelos"),
         index=0,
         help="Cambie entre la operación normal y la configuración de filtros de depuración."
     )
@@ -447,5 +498,7 @@ with st.sidebar:
 
 if opcion == "Modelos":
     modulo_interfaz_principal()
+elif opcion == "Depuración":
+    modulo_login()    
 elif opcion == "Depuración":
     modulo_depuracion_leads()

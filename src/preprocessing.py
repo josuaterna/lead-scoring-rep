@@ -1,49 +1,10 @@
 import pandas as pd
 import numpy as np
-from src.data_loader import drop_fields
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, FunctionTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 
-def col_filter(df):
-    DROP_COLS = drop_fields(r"D:\Backup2026\UNIR\TFM 2025\lead_scoring_app\data\experiments\lead_scoring_training\fields.txt")
-    fields_to_drop = [i.strip().lower().replace(" ", "_") for i in DROP_COLS]
-    cols_to_drop = [c for c in fields_to_drop if c in df.columns]
-    df.drop(columns=cols_to_drop)
-    return df
-
-def procesar_csv_anonim(ruta_entrada, ruta_salida, target_col, campos, patron, campo_evaluar):
-    # 1. Definir los campos que queremos conservar
-    campos_mantener = campos + [target_col]
-
-    # 2. Cargar el archivo CSV
-    df = pd.read_csv(ruta_entrada, sep=';', dtype=str, encoding='utf-8')
-    if target_col in df.columns:
-        df.drop(columns=[target_col])
-
-    # Buscamos las frases en la columna 'NIVEL3'
-    # .str.contains permite buscar múltiples términos usando el operador '|' (OR)
-    #patron = "VENTA CANTADA|VENTA NO CONFIRMADA|VENTA EFECTIVA|CLIENTE DESISTE"
-    
-    # Creamos la columna: 1 si coincide, 0 si no
-    # na=False asegura que si hay celdas vacías, no de error y ponga 0
-    df[target_col] = np.where(
-        df[campo_evaluar].str.contains(patron, case=False, na=False), 
-        "1", 
-        "0"
-    )
-
-    # 4. Eliminar columnas que no están en la lista 'campos_mantener'
-    # Esto reemplaza el Loop de VBA que borraba columnas una a una
-    columnas_existentes = [col for col in campos_mantener if col in df.columns]
-    df_final = df[columnas_existentes]
-
-    # 5. Guardar como CSV separado por ';' y en UTF-8
-    df_final.to_csv(ruta_salida, sep=';', index=False, encoding='utf-8')
-    print(f"Archivo depurado con éxito.")
-
-#def procesar_csv_multiple_filtros(ruta_entrada, ruta_salida, target_col, campos_mantener, filtros):
 def procesar_csv_multiple_filtros(ruta_entrada, ruta_salida, target_col, campos_mantener, filtros):
     df = pd.read_csv(ruta_entrada, sep=';', dtype=str, encoding='utf-8')
     
@@ -86,28 +47,6 @@ def procesar_csv_multiple_filtros(ruta_entrada, ruta_salida, target_col, campos_
     print(f"procesar_csv_multiple_filtro - ESCRIBIR CSV -- {ruta_salida}")
     df[columnas_finales].to_csv(ruta_salida, sep=';', index=False, encoding='utf-8')
     return True
-
-def build_preprocessor(df, target_col):
-    numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.drop(target_col)
-    categorical_cols = df.select_dtypes(include=["object"]).columns
-
-    categorical_pipeline = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="most_frequent")),
-        ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
-    ])
-
-    numeric_pipeline = Pipeline(steps=[
-        ("imputer", SimpleImputer(strategy="median"))
-    ])
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("cat", categorical_pipeline, categorical_cols),
-            ("num", numeric_pipeline, numeric_cols)
-        ]
-    )
-
-    return preprocessor
 
 def verificar_cobertura_categorias(csv_path, target_col, max_unique=150, forced_cat_cols=None):
     if forced_cat_cols is None:

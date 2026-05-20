@@ -11,7 +11,6 @@ from scripts.mlfunc import batch_predict_to_disk
 from src.preprocessing import procesar_csv_multiple_filtros
 from pathlib import Path
 from PIL import Image
-import time
 
 FOLDER_DATA = Path(__file__).parent
 client = MlflowClient()
@@ -40,7 +39,6 @@ def load_file_remote(file_name, exp_id, tipo_accion):
                 df = cargar_datos(uploaded_file)
                 print(f"Modulo depuracion df creado")
                 columnas = list(df.columns)
-                time.sleep(1)
                 print(f" --- SECCIÓN 1: UI de Filtros Dinámicos ---")
                 st.subheader("1. Configurar Reglas de Filtrado (Target)")
                 col_check, col_name, col_op, col_val = st.columns([0.5, 2, 2, 2])
@@ -210,8 +208,6 @@ def modulo_depuracion_leads(df, archivo_cargado, path_out, columnas, columnas_se
         if not st.session_state.procesamiento_exitoso:
             st.info("Esperando procesamiento para continuar...")
             st.stop()
-
-
 
 st.divider()
 with st.container():
