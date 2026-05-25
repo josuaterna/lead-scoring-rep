@@ -4,7 +4,6 @@ import mlflow
 import tkinter as tk
 from mlflow.tracking import MlflowClient
 from tkinter import filedialog
-from src.data_loader import subir_archivo
 from scripts.mlfunc import train_big_data
 from scripts.mlfunc import promote_if_better
 from scripts.mlfunc import batch_predict_to_disk
